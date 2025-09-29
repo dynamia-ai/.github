@@ -1,5 +1,10 @@
 # Dynamia.ai
 
+We’re hiring AI Infra developers and open-source community contributors! 🚀
+If you’re interested in Dynamia.ai or HAMi, please send your resume to <info@dynamia.ai>.
+✨ Be sure to mention “from GitHub” in your application — it will earn you extra credit!
+
+
 **Empowering the Future of Heterogeneous AI Infrastructure**
 
 Dynamia.ai is a global technology company dedicated to building a
