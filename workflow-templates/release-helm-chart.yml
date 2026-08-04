@@ -1,10 +1,13 @@
-# Before committing, replace CHART_PATH. Chart.yaml is the only version source;
-# do not add tag, release, or manual-input publication paths.
+# Before committing, replace both charts/REPLACE_ME values with the same chart
+# directory. Chart.yaml is the only version source; do not add tag, release, or
+# manual-input publication paths.
 name: Release Helm Chart
 
 on:
   push:
     branches: [$default-branch]
+    paths:
+      - 'charts/REPLACE_ME/Chart.yaml'
 
 permissions:
   contents: read

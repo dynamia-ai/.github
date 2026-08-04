@@ -5,7 +5,7 @@
 ## 使用方式
 
 1. 在目标仓库的「Actions → New workflow」中选择合适的模板。
-2. 复制后，先替换模板顶部注释标出的 `REPLACE_ME`、`CHART_PATH`、镜像名称或发布命名空间。
+2. 复制后，先替换模板顶部注释标出的 `REPLACE_ME`、`CHART_PATH`、镜像名称或发布命名空间。Helm Chart 发布模板中的 `on.push.paths` 与 `CHART_PATH` 必须指向同一个 Chart 目录。
 3. 将对应的 Makefile example 合并进仓库 Makefile，并按项目语义补充 module、Chart values、镜像二进制或其他验证。
 4. 将触发分支、构建上下文、测试命令和发布语义调整为该仓库的实际合同，再提交。
 5. 在 Pull Request 中验证构建类模板。镜像发布使用稳定版 `vX.Y.Z` tag；Helm Chart 发布仅由默认分支上递增的 `Chart.yaml.version` 触发。
@@ -126,7 +126,7 @@ Dockerfile、context、build args、代码生成和仓库专属 smoke 仍由目�
 
 ## Helm Chart 发布合同
 
-`release-helm-chart` 只监听默认分支 push，`Chart.yaml.version` 是唯一版本来源。每次运行都比较 push 事件中的精确 `before` 与 `github.sha`：版本未变时明确成功且不发布；首次加入 Chart 时允许首发；基线不可解析、版本非法或版本降低时直接失败。tag、GitHub Release、手工输入和其他文件均不能另行指定版本。
+`release-helm-chart` 只监听默认分支中目标 `Chart.yaml` 路径的 push，`Chart.yaml.version` 是唯一版本来源。触发后仍会比较 push 事件中的精确 `before` 与 `github.sha`，只有版本首次出现或严格递增时才进入 `package → publish`；版本未变时明确成功且不发布，基线不可解析、版本非法或版本降低时直接失败。tag、GitHub Release、手工输入和其他文件均不能另行指定版本。
 
 发布前复用本地 CI 入口。打包本身是通用的发布编排，由 Workflow 使用标准 Helm 命令完成，并沿用相同的 `Chart.lock` 与依赖树漂移检查：
 
