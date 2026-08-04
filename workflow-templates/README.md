@@ -7,7 +7,7 @@
 1. 在目标仓库的「Actions → New workflow」中选择合适的模板。
 2. 复制后，先替换模板顶部注释标出的 `REPLACE_ME`、`CHART_PATH`、镜像名称或发布命名空间。
 3. 将触发分支、构建上下文、测试命令和发布语义调整为该仓库的实际合同，再提交。
-4. 在 Pull Request 中验证构建类模板；发布类模板只应在版本与发布物已准备好后通过 `vX.Y.Z` tag 或手工输入版本触发。
+4. 在 Pull Request 中验证构建类模板；发布类模板只应在版本与发布物已准备好后通过稳定版 `vX.Y.Z` tag 触发。
 
 模板不包含私有仓库名、内部 runner、网络信息或额外 secret 约定。发布模板只使用 GitHub 提供的 `GITHUB_TOKEN`，并默认发布到当前组织的 GHCR 命名空间。
 
@@ -26,9 +26,9 @@
 
 - PR 与普通分支上的旧运行会被取消，避免过期结果占用 runner；发布运行不会被取消。
 - CI 模板只验证或生成 artifact，不会登录 registry 或发布。
-- 发布模板要求版本为 SemVer；Helm 发布额外要求 `Chart.yaml` 的 version 与 tag/输入版本一致。
+- 发布模板只接受无预发布后缀、无前导零的三段版本；Helm 发布额外要求 `Chart.yaml` 的 version 与 tag 版本一致。
 - Helm 通过 `azure/setup-helm` 的 `latest` 安装最新稳定版，不继承历史的 Helm `3.20` 固定值。若特定项目有兼容性约束，应在该项目的 workflow 中写明原因并固定版本。
-- 所有模板均有超时、缓存或 artifact 校验，以及稳定的 `CI required` 或 `Release required` 终态 job，便于目标仓库设置分支保护检查。
+- 所有模板均有超时、缓存或 artifact 校验，以及名称唯一的终态 job，便于目标仓库设置分支保护检查。
 
 ## 维护边界
 

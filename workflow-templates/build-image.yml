@@ -4,7 +4,7 @@ name: Build Image
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [$default-branch]
   workflow_dispatch:
 
 permissions:
@@ -48,12 +48,14 @@ jobs:
           name: image-validation
           path: ${{ runner.temp }}/image.tar
           if-no-files-found: error
+          retention-days: 1
 
   ci-required:
-    name: CI required
+    name: Image Build required
     if: always()
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require successful CI
         run: test "${{ needs.build.result }}" = success

@@ -5,7 +5,7 @@ name: Go CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [$default-branch]
   workflow_dispatch:
 
 permissions:
@@ -57,10 +57,11 @@ jobs:
           if-no-files-found: error
 
   ci-required:
-    name: CI required
+    name: Go CI required
     if: always()
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require successful CI
         run: test "${{ needs.test.result }}" = success

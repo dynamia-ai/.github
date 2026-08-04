@@ -4,12 +4,6 @@ name: Release Helm Chart
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Chart version without the v prefix"
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -42,11 +36,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          version="${{ inputs.version }}"
-          if [ "${{ github.ref_type }}" = tag ]; then
-            version="${GITHUB_REF_NAME#v}"
-          fi
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]
+          version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build chart dependencies
@@ -86,10 +77,11 @@ jobs:
           files: ${{ env.PACKAGE_DIR }}/*.tgz
 
   release-required:
-    name: Release required
+    name: Helm Chart Release required
     if: always()
     needs: release
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require successful release
         run: test "${{ needs.release.result }}" = success

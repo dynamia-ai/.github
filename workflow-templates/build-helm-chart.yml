@@ -4,7 +4,7 @@ name: Build Helm Chart
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [$default-branch]
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ concurrency:
 
 env:
   CHART_PATH: charts/REPLACE_ME
-  PACKAGE_DIR: .chart-packages
+  PACKAGE_DIR: chart-packages
 
 jobs:
   package:
@@ -55,10 +55,11 @@ jobs:
           if-no-files-found: error
 
   ci-required:
-    name: CI required
+    name: Helm Chart Build required
     if: always()
     needs: package
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require successful CI
         run: test "${{ needs.package.result }}" = success
