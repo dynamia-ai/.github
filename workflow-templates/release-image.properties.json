@@ -1,5 +1,6 @@
 {
   "name": "Release Image",
-  "description": "Build a multi-platform image, publish it to GHCR, and create a GitHub release.",
-  "categories": ["Deployment"]
+  "description": "Publish a versioned multi-platform image, verify its digest, then create its GitHub release.",
+  "categories": ["Deployment"],
+  "filePatterns": ["(^|/)Dockerfile$", "(^|/)\\.dockerignore$"]
 }

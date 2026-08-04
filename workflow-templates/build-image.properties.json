@@ -1,5 +1,6 @@
 {
   "name": "Build Image",
-  "description": "Build and validate a container image without publishing it.",
-  "categories": ["Continuous integration"]
+  "description": "Build, load, smoke-test, and export an image without publishing it.",
+  "categories": ["Continuous integration"],
+  "filePatterns": ["(^|/)Dockerfile$", "(^|/)\\.dockerignore$"]
 }

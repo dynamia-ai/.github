@@ -1,4 +1,5 @@
-# Before committing, replace IMAGE_NAME with the image name to publish to GHCR.
+# Before committing, replace IMAGE_NAME and confirm the Dockerfile, context,
+# platforms, and repository-owned pre-release checks.
 name: Release Image
 
 on:
@@ -6,8 +7,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: release-image-${{ github.ref }}
@@ -20,50 +20,141 @@ env:
 
 jobs:
   release:
-    name: Publish image
+    name: Publish and verify image
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout exact tagged revision
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
 
-      - name: Determine release version
+      - name: Validate stable release tag
         id: version
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          echo "value=$version" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          [[ "$GITHUB_REF_TYPE" = "tag" ]]
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$IMAGE_NAME" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]]
+          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@v4
+      - name: Define image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: type=raw,value=${{ steps.version.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-qemu-action@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
-      - uses: docker/setup-buildx-action@v4
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
 
-      - name: Build and publish
+      - name: Require unused release version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          response_file="$RUNNER_TEMP/github-release.json"
+          status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+
+          case "$status" in
+            404) ;;
+            200)
+              echo "GitHub release already exists: $RELEASE_TAG" >&2
+              exit 1
+              ;;
+            *)
+              echo "Failed to check GitHub release $RELEASE_TAG: HTTP $status" >&2
+              exit 1
+              ;;
+          esac
+
+          lookup_error="$RUNNER_TEMP/image-lookup-error"
+          if docker buildx imagetools inspect "$IMAGE_REF" >/dev/null 2>"$lookup_error"; then
+            echo "Image tag already exists: $IMAGE_REF" >&2
+            exit 1
+          fi
+
+          if ! grep -Eqi 'not found|manifest unknown|name unknown' "$lookup_error"; then
+            echo "Failed to confirm that the image tag is unused: $IMAGE_REF" >&2
+            sed -n '1,20p' "$lookup_error" >&2
+            exit 1
+          fi
+
+      - name: Build and publish image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{ env.IMAGE_CONTEXT }}
           file: ${{ env.DOCKERFILE }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.value }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify digest and platforms
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          docker buildx imagetools inspect "$IMAGE@$EXPECTED_DIGEST" >/dev/null
+          docker buildx imagetools inspect --raw "$IMAGE@$EXPECTED_DIGEST" > "$RUNNER_TEMP/image-index.json"
+
+          test "$(jq '[.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64")] | length' "$RUNNER_TEMP/image-index.json")" = 1
+          test "$(jq '[.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "arm64")] | length' "$RUNNER_TEMP/image-index.json")" = 1
+
+          tag_digest="$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | awk '$1 == "Digest:" { print $2; exit }')"
+          test "$tag_digest" = "$EXPECTED_DIGEST"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ steps.version.outputs.value }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Container image: `${{ steps.meta.outputs.tags }}@${{ steps.build.outputs.digest }}`
           generate_release_notes: true
+          make_latest: true
 
-  release-required:
+  image-release-required:
     name: Image Release required
     if: always()
     needs: release

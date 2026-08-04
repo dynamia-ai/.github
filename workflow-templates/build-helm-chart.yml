@@ -1,14 +1,17 @@
-# Before committing, replace CHART_PATH with the chart to package in this repository.
+# Before committing, replace CHART_PATH and extend the change filter for every
+# input consumed by make verify-helm-chart or Helm packaging.
 name: Build Helm Chart
 
 on:
   pull_request:
+    branches: [$default-branch]
   push:
     branches: [$default-branch]
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: build-helm-chart-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -17,49 +20,153 @@ concurrency:
 env:
   CHART_PATH: charts/REPLACE_ME
   PACKAGE_DIR: chart-packages
+  HELM_VERSION: v4.2.3
+  HELM_DOCS_VERSION: v1.14.2
+  HELM_SCHEMA_VERSION: 2.5.0
 
 jobs:
-  package:
-    name: Package chart
+  changes:
+    name: Detect Helm package changes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+    outputs:
+      helm: ${{ github.event_name != 'pull_request' || steps.filter.outputs.helm == 'true' }}
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: azure/setup-helm@v5
+      - name: Filter changed files
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v4
         with:
-          version: latest
+          filters: |
+            helm:
+              - 'charts/**'
+              - 'Makefile'
+              - '**/Makefile'
+              - 'Makefile.*'
+              - '**/Makefile.*'
+              - '**/*.mk'
+              - 'hack/**'
+              - 'scripts/**'
+              - '.helmignore'
+              - '**/.helmignore'
+              - '.github/workflows/build-helm-chart.yml'
 
-      - name: Build chart dependencies
-        run: helm dependency build "$CHART_PATH"
+  package:
+    name: Verify and package chart
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Lint
-        run: helm lint --strict "$CHART_PATH"
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
 
-      - name: Package
-        run: helm package "$CHART_PATH" --destination "$PACKAGE_DIR"
+      - name: Set up helm-docs
+        uses: gabe565/setup-helm-docs-action@v1
+        with:
+          version: ${{ env.HELM_DOCS_VERSION }}
 
-      - name: Validate package
+      - name: Install values schema generator
+        run: >-
+          helm plugin install
+          https://github.com/losisin/helm-values-schema-json.git
+          --version "v${HELM_SCHEMA_VERSION}"
+          --verify=false
+
+      - name: Run local Helm CI contract
+        run: make verify-helm-chart
+
+      - name: Package chart
         shell: bash
         run: |
+          set -euo pipefail
+          rm -rf "$PACKAGE_DIR"
+          mkdir -p "$PACKAGE_DIR"
+
+          if grep -Eq '^dependencies:' "$CHART_PATH/Chart.yaml"; then
+            git ls-files --error-unmatch "$CHART_PATH/Chart.lock" >/dev/null
+          fi
+
+          helm dependency build "$CHART_PATH"
+
+          if [[ -n "$(git status --porcelain --untracked-files=all -- "$CHART_PATH/Chart.lock" "$CHART_PATH/charts")" ]]; then
+            echo "helm dependency build changed the committed dependency tree" >&2
+            git status --short -- "$CHART_PATH/Chart.lock" "$CHART_PATH/charts" >&2
+            exit 1
+          fi
+
+          helm package "$CHART_PATH" --destination "$PACKAGE_DIR"
+
+      - name: Validate package identity
+        shell: bash
+        run: |
+          set -euo pipefail
           shopt -s nullglob
           packages=("$PACKAGE_DIR"/*.tgz)
           test "${#packages[@]}" = 1
-          helm show chart "${packages[0]}"
+          test -s "${packages[0]}"
+
+          source_name="$(helm show chart "$CHART_PATH" | awk -F': ' '$1 == "name" { print $2; exit }')"
+          source_version="$(helm show chart "$CHART_PATH" | awk -F': ' '$1 == "version" { print $2; exit }')"
+          package_name="$(helm show chart "${packages[0]}" | awk -F': ' '$1 == "name" { print $2; exit }')"
+          package_version="$(helm show chart "${packages[0]}" | awk -F': ' '$1 == "version" { print $2; exit }')"
+
+          test -n "$source_name"
+          test -n "$source_version"
+          test "$package_name" = "$source_name"
+          test "$package_version" = "$source_version"
+          test "$(basename "${packages[0]}")" = "${source_name}-${source_version}.tgz"
 
       - name: Upload chart package
         uses: actions/upload-artifact@v7
         with:
-          name: helm-chart-package
+          name: helm-chart-package-${{ github.sha }}
           path: ${{ env.PACKAGE_DIR }}/*.tgz
           if-no-files-found: error
+          overwrite: true
+          retention-days: 1
 
-  ci-required:
+  helm-chart-build-required:
     name: Helm Chart Build required
     if: always()
-    needs: package
+    needs:
+      - changes
+      - package
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require successful CI
-        run: test "${{ needs.package.result }}" = success
+      - name: Require successful chart build
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          HELM_RELEVANT: ${{ needs.changes.outputs.helm }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+        run: |
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "Helm package change detection failed: $CHANGES_RESULT"
+            exit 1
+          fi
+
+          case "$HELM_RELEVANT" in
+            false)
+              echo "No Helm package-relevant changes."
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "Helm package change detection returned an invalid decision: $HELM_RELEVANT"
+              exit 1
+              ;;
+          esac
+
+          if [[ "$PACKAGE_RESULT" != "success" ]]; then
+            echo "Chart package did not complete successfully: $PACKAGE_RESULT"
+            exit 1
+          fi

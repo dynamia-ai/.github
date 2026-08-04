@@ -21,7 +21,7 @@ env:
   PACKAGE_DIR: chart-release
   HELM_VERSION: v4.2.3
   HELM_DOCS_VERSION: v1.14.2
-  HELM_SCHEMA_VERSION: v2.5.0
+  HELM_SCHEMA_VERSION: 2.5.0
 
 jobs:
   plan:
@@ -138,7 +138,7 @@ jobs:
         run: >-
           helm plugin install
           https://github.com/losisin/helm-values-schema-json.git
-          --version "${HELM_SCHEMA_VERSION}"
+          --version "v${HELM_SCHEMA_VERSION}"
           --verify=false
 
       - name: Run local Helm CI contract
@@ -147,8 +147,21 @@ jobs:
       # Packaging is generic publication orchestration. All repository-specific
       # validation remains in make verify-helm-chart.
       - name: Package chart once
+        shell: bash
         run: |
+          set -euo pipefail
+          if grep -Eq '^dependencies:' "$CHART_PATH/Chart.yaml"; then
+            git ls-files --error-unmatch "$CHART_PATH/Chart.lock" >/dev/null
+          fi
+
           helm dependency build "$CHART_PATH"
+
+          if [[ -n "$(git status --porcelain --untracked-files=all -- "$CHART_PATH/Chart.lock" "$CHART_PATH/charts")" ]]; then
+            echo "helm dependency build changed the committed dependency tree" >&2
+            git status --short -- "$CHART_PATH/Chart.lock" "$CHART_PATH/charts" >&2
+            exit 1
+          fi
+
           mkdir -p "$PACKAGE_DIR"
           helm package "$CHART_PATH" --destination "$PACKAGE_DIR"
 
@@ -294,21 +307,6 @@ jobs:
           overwrite_files: false
           fail_on_unmatched_files: true
           files: ${{ env.PACKAGE_DIR }}/*.tgz
-
-      - name: Verify GitHub release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
-          EXPECTED_ASSET: ${{ needs.plan.outputs.name }}-${{ needs.plan.outputs.version }}.tgz
-        run: |
-          set -euo pipefail
-          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
-          test "$tag_sha" = "$GITHUB_SHA"
-
-          asset_count="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
-            --jq "[.assets[] | select(.name == \"$EXPECTED_ASSET\")] | length")"
-          test "$asset_count" = 1
 
   helm-chart-release-required:
     name: Helm Chart Release required
