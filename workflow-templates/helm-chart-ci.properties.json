@@ -1,5 +1,6 @@
 {
   "name": "Helm Chart CI",
-  "description": "Build dependencies, lint, and render a Helm chart.",
-  "categories": ["Continuous integration"]
+  "description": "Run repository-owned Helm chart verification when relevant files change.",
+  "categories": ["Continuous integration"],
+  "filePatterns": ["(^|/)Chart\\.yaml$"]
 }

@@ -1,5 +1,6 @@
 {
   "name": "Release Helm Chart",
-  "description": "Package a Helm chart, publish it to GHCR OCI, and create a GitHub release.",
-  "categories": ["Deployment"]
+  "description": "Publish a verified chart when its Chart.yaml version increases on the default branch.",
+  "categories": ["Deployment"],
+  "filePatterns": ["(^|/)Chart\\.yaml$"]
 }
