@@ -1,67 +1,134 @@
-# This workflow template is copied into the target repository. Review the commands
-# below against the repository's Go module layout before committing it.
+# This template expects repository-owned, non-mutating Make targets. After copying,
+# map the command below to the repository's local Go CI entry points and extend the
+# change filter for every file that can affect those checks.
 name: Go CI
 
 on:
   pull_request:
+    branches: [$default-branch]
   push:
     branches: [$default-branch]
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: go-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-jobs:
-  test:
-    name: Test and build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
+env:
+  GOLANGCI_LINT_VERSION: v2.12.2
+  GO_COVERAGE_FILE: cover.out
 
-      - uses: actions/setup-go@v7
+jobs:
+  changes:
+    name: Detect Go changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
+    steps:
+      - name: Filter changed files
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            go:
+              - '**/*.go'
+              - '**/go.mod'
+              - '**/go.sum'
+              - 'go.work'
+              - 'go.work.sum'
+              - 'Makefile'
+              - '**/Makefile'
+              - 'Makefile.*'
+              - '**/Makefile.*'
+              - '**/*.mk'
+              - '.golangci.yml'
+              - '.golangci.yaml'
+              - '.golangci.toml'
+              - '.golangci.json'
+              - '**/.golangci.yml'
+              - '**/.golangci.yaml'
+              - '**/.golangci.toml'
+              - '**/.golangci.json'
+              - 'hack/**'
+              - 'scripts/**'
+              - 'vendor/**'
+              - '.github/workflows/go-ci.yml'
+
+  go-checks:
+    name: Run repository Go checks
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)"
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Lint
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
-          args: --timeout=5m
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-only: true
 
-      - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+      # Keep this exact command runnable from a local checkout. Repository-specific
+      # checks, build tags, and nested modules belong in these Make targets instead
+      # of being duplicated in this workflow.
+      - name: Run local Go CI contract
+        run: make fmt-check vet lint test verify-build
 
-      - name: Build
-        run: go build ./...
-
-      - name: Validate coverage artifact
-        run: test -s coverage.out
+      - name: Validate coverage output
+        run: test -s "$GO_COVERAGE_FILE"
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7
         with:
           name: go-coverage
-          path: coverage.out
+          path: ${{ env.GO_COVERAGE_FILE }}
           if-no-files-found: error
+          retention-days: 7
 
-  ci-required:
+  go-ci-required:
     name: Go CI required
     if: always()
-    needs: test
+    needs:
+      - changes
+      - go-checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require successful CI
-        run: test "${{ needs.test.result }}" = success
+      - name: Require successful Go CI
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          GO_RELEVANT: ${{ needs.changes.outputs.go }}
+          GO_CHECKS_RESULT: ${{ needs.go-checks.result }}
+        run: |
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "Go change detection failed: $CHANGES_RESULT"
+            exit 1
+          fi
+
+          if [[ "$GO_RELEVANT" != "true" ]]; then
+            echo "No Go-relevant changes."
+            exit 0
+          fi
+
+          if [[ "$GO_CHECKS_RESULT" != "success" ]]; then
+            echo "Go checks did not complete successfully: $GO_CHECKS_RESULT"
+            exit 1
+          fi

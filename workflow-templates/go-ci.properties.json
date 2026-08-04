@@ -1,5 +1,6 @@
 {
   "name": "Go CI",
-  "description": "Format, vet, lint, test, and build a Go module.",
-  "categories": ["Go"]
+  "description": "Run change-aware, repository-owned Go checks through Make.",
+  "categories": ["Go"],
+  "filePatterns": ["(^|/)go\\.(mod|work)$"]
 }
