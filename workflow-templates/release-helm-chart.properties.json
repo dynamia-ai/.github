@@ -1,0 +1,5 @@
+{
+  "name": "Release Helm Chart",
+  "description": "Package a Helm chart, publish it to GHCR OCI, and create a GitHub release.",
+  "categories": ["Deployment"]
+}

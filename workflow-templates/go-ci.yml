@@ -1,0 +1,66 @@
+# This workflow template is copied into the target repository. Review the commands
+# below against the repository's Go module layout before committing it.
+name: Go CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Validate coverage artifact
+        run: test -s coverage.out
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: go-coverage
+          path: coverage.out
+          if-no-files-found: error
+
+  ci-required:
+    name: CI required
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful CI
+        run: test "${{ needs.test.result }}" = success

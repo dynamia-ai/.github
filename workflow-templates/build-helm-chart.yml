@@ -1,0 +1,64 @@
+# Before committing, replace CHART_PATH with the chart to package in this repository.
+name: Build Helm Chart
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-helm-chart-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHART_PATH: charts/REPLACE_ME
+  PACKAGE_DIR: .chart-packages
+
+jobs:
+  package:
+    name: Package chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Build chart dependencies
+        run: helm dependency build "$CHART_PATH"
+
+      - name: Lint
+        run: helm lint --strict "$CHART_PATH"
+
+      - name: Package
+        run: helm package "$CHART_PATH" --destination "$PACKAGE_DIR"
+
+      - name: Validate package
+        shell: bash
+        run: |
+          shopt -s nullglob
+          packages=("$PACKAGE_DIR"/*.tgz)
+          test "${#packages[@]}" = 1
+          helm show chart "${packages[0]}"
+
+      - name: Upload chart package
+        uses: actions/upload-artifact@v7
+        with:
+          name: helm-chart-package
+          path: ${{ env.PACKAGE_DIR }}/*.tgz
+          if-no-files-found: error
+
+  ci-required:
+    name: CI required
+    if: always()
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful CI
+        run: test "${{ needs.package.result }}" = success

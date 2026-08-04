@@ -1,0 +1,58 @@
+# Before committing, replace CHART_PATH with the chart to validate in this repository.
+name: Helm Chart CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-chart-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHART_PATH: charts/REPLACE_ME
+
+jobs:
+  validate:
+    name: Lint and render
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Build chart dependencies
+        run: helm dependency build "$CHART_PATH"
+
+      - name: Lint
+        run: helm lint --strict "$CHART_PATH"
+
+      - name: Render
+        run: helm template --debug --include-crds chart "$CHART_PATH" > rendered.yaml
+
+      - name: Validate rendered manifest
+        run: test -s rendered.yaml
+
+      - name: Upload rendered manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: rendered-manifest
+          path: rendered.yaml
+          if-no-files-found: error
+
+  ci-required:
+    name: CI required
+    if: always()
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful CI
+        run: test "${{ needs.validate.result }}" = success

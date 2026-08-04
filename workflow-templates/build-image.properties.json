@@ -1,0 +1,5 @@
+{
+  "name": "Build Image",
+  "description": "Build and validate a container image without publishing it.",
+  "categories": ["Continuous integration"]
+}

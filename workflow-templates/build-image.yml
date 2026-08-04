@@ -1,0 +1,59 @@
+# This workflow validates an image build only. It never logs in to a registry or pushes an image.
+name: Build Image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-image-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_CONTEXT: .
+  DOCKERFILE: Dockerfile
+
+jobs:
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build without publishing
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.IMAGE_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: false
+          tags: local/validation:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=${{ runner.temp }}/image.tar
+
+      - name: Validate image artifact
+        run: test -s "$RUNNER_TEMP/image.tar"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-validation
+          path: ${{ runner.temp }}/image.tar
+          if-no-files-found: error
+
+  ci-required:
+    name: CI required
+    if: always()
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful CI
+        run: test "${{ needs.build.result }}" = success

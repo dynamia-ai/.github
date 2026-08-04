@@ -1,0 +1,5 @@
+{
+  "name": "Build Helm Chart",
+  "description": "Lint, package, and upload a Helm chart without publishing it.",
+  "categories": ["Continuous integration"]
+}

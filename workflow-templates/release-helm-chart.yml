@@ -1,0 +1,95 @@
+# Before committing, replace CHART_PATH and OCI_NAMESPACE for the chart being released.
+name: Release Helm Chart
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Chart version without the v prefix"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-helm-chart-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CHART_PATH: charts/REPLACE_ME
+  OCI_NAMESPACE: charts
+  PACKAGE_DIR: .chart-release
+
+jobs:
+  release:
+    name: Package and publish chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          version="${{ inputs.version }}"
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build chart dependencies
+        run: helm dependency build "$CHART_PATH"
+
+      - name: Verify chart version
+        shell: bash
+        run: |
+          chart_version="$(helm show chart "$CHART_PATH" | awk -F': ' '$1 == "version" { print $2 }')"
+          test "$chart_version" = "${{ steps.version.outputs.value }}"
+
+      - name: Lint and package
+        run: |
+          helm lint --strict "$CHART_PATH"
+          helm package "$CHART_PATH" --destination "$PACKAGE_DIR"
+
+      - name: Validate package
+        shell: bash
+        run: |
+          shopt -s nullglob
+          packages=("$PACKAGE_DIR"/*.tgz)
+          test "${#packages[@]}" = 1
+          helm show chart "${packages[0]}"
+
+      - name: Log in to GHCR
+        shell: bash
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Publish to OCI registry
+        run: helm push "$PACKAGE_DIR"/*.tgz oci://ghcr.io/${{ github.repository_owner }}/${{ env.OCI_NAMESPACE }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.version.outputs.value }}
+          generate_release_notes: true
+          files: ${{ env.PACKAGE_DIR }}/*.tgz
+
+  release-required:
+    name: Release required
+    if: always()
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful release
+        run: test "${{ needs.release.result }}" = success

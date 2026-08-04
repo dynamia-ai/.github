@@ -1,0 +1,80 @@
+# Before committing, replace IMAGE_NAME with the image name to publish to GHCR.
+name: Release Image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the v prefix"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_CONTEXT: .
+  DOCKERFILE: Dockerfile
+  IMAGE_NAME: REPLACE_ME
+
+jobs:
+  release:
+    name: Publish image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          version="${{ inputs.version }}"
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build and publish
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.IMAGE_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.value }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ steps.version.outputs.value }}
+          generate_release_notes: true
+
+  release-required:
+    name: Release required
+    if: always()
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful release
+        run: test "${{ needs.release.result }}" = success

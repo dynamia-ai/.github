@@ -1,0 +1,5 @@
+{
+  "name": "Release Image",
+  "description": "Build a multi-platform image, publish it to GHCR, and create a GitHub release.",
+  "categories": ["Deployment"]
+}
