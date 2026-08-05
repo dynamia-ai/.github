@@ -144,12 +144,7 @@ jobs:
           --version "v${HELM_SCHEMA_VERSION}"
           --verify=false
 
-      - name: Run local Helm CI contract
-        run: make verify-helm-chart
-
-      # Packaging is generic publication orchestration. All repository-specific
-      # validation remains in make verify-helm-chart.
-      - name: Package chart once
+      - name: Prepare chart dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -165,6 +160,15 @@ jobs:
             exit 1
           fi
 
+      - name: Run local Helm CI contract
+        run: make verify-helm-chart
+
+      # Packaging remains workflow-owned publication orchestration; the local
+      # contract is limited to generated-file drift, linting, and rendering.
+      - name: Package chart once
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p "$PACKAGE_DIR"
           helm package "$CHART_PATH" --destination "$PACKAGE_DIR"
 

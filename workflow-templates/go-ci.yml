@@ -1,6 +1,5 @@
-# This template expects repository-owned, non-mutating Make targets. After copying,
-# map the command below to the repository's local Go CI entry points and extend the
-# change filter for every file that can affect those checks.
+# This template expects a repository-owned, non-mutating make ci target. After
+# copying, extend the change filter for every file that can affect that target.
 name: Go CI
 
 on:
@@ -86,10 +85,9 @@ jobs:
           install-only: true
 
       # Keep this exact command runnable from a local checkout. Repository-specific
-      # checks, build tags, and nested modules belong in these Make targets instead
-      # of being duplicated in this workflow.
+      # checks, build tags, and nested modules belong in Make instead of this YAML.
       - name: Run local Go CI contract
-        run: make fmt-check vet lint test verify-build
+        run: make ci
 
       - name: Validate coverage output
         run: test -s "$GO_COVERAGE_FILE"

@@ -81,8 +81,8 @@ jobs:
           --version "v${HELM_SCHEMA_VERSION}"
           --verify=false
 
-      # Keep this exact command runnable from a local checkout. Generated-file
-      # drift, linting, renders, dependency policy, and packaging belong here.
+      # Keep this exact command runnable from a local checkout. Generated README
+      # and schema drift, basic linting, and template rendering belong here.
       - name: Run local Helm CI contract
         run: make verify-helm-chart
 

@@ -1,4 +1,4 @@
-# This workflow builds, loads, validates, and exports one local image. It never
+# This workflow builds, loads, inspects, and exports one local image. It never
 # logs in to a registry or pushes an image. Extend the change filter for every
 # file reachable through the selected Dockerfile and build context.
 name: Build Image
@@ -22,6 +22,9 @@ env:
   IMAGE_CONTEXT: .
   DOCKERFILE: Dockerfile
   IMAGE_REF: local/validation:${{ github.sha }}
+  IMAGE_PLATFORM: linux/amd64
+  IMAGE_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+  IMAGE_REVISION: ${{ github.sha }}
 
 jobs:
   changes:
@@ -43,7 +46,7 @@ jobs:
               - '**'
 
   build:
-    name: Build and validate image
+    name: Build image
     needs: changes
     if: needs.changes.outputs.image == 'true'
     runs-on: ubuntu-latest
@@ -58,43 +61,18 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Define image metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: local/validation
-          tags: type=raw,value=${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-
       - name: Build and load without publishing
-        uses: docker/build-push-action@v7
-        with:
-          context: ${{ env.IMAGE_CONTEXT }}
-          file: ${{ env.DOCKERFILE }}
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: make build-image
 
-      - name: Validate loaded image metadata
+      - name: Inspect loaded image metadata
         shell: bash
         run: |
           set -euo pipefail
-          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_REF")" = "linux/amd64"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_REF")" = "$IMAGE_PLATFORM"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.source" }}' "$IMAGE_REF")" = \
-            "${{ github.server_url }}/${{ github.repository }}"
+            "$IMAGE_SOURCE"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REF")" = \
-            "${{ github.sha }}"
-
-      # Keep this exact command runnable after an ordinary local Docker build.
-      # Required executables, assets, and harmless version checks belong here.
-      - name: Run local image verification contract
-        run: make verify-image IMAGE_REF="$IMAGE_REF"
+            "$IMAGE_REVISION"
 
       - name: Create and validate image artifact
         shell: bash

@@ -81,16 +81,10 @@ jobs:
           --version "v${HELM_SCHEMA_VERSION}"
           --verify=false
 
-      - name: Run local Helm CI contract
-        run: make verify-helm-chart
-
-      - name: Package chart
+      - name: Prepare chart dependencies
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf "$PACKAGE_DIR"
-          mkdir -p "$PACKAGE_DIR"
-
           if grep -Eq '^dependencies:' "$CHART_PATH/Chart.yaml"; then
             git ls-files --error-unmatch "$CHART_PATH/Chart.lock" >/dev/null
           fi
@@ -103,6 +97,15 @@ jobs:
             exit 1
           fi
 
+      - name: Run local Helm CI contract
+        run: make verify-helm-chart
+
+      - name: Package chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$PACKAGE_DIR"
+          mkdir -p "$PACKAGE_DIR"
           helm package "$CHART_PATH" --destination "$PACKAGE_DIR"
 
       - name: Validate package identity
