@@ -1,0 +1,6 @@
+{
+  "name": "Helm Chart CI",
+  "description": "Run repository-owned Helm chart verification when relevant files change.",
+  "categories": ["Continuous integration"],
+  "filePatterns": ["(^|/)Chart\\.yaml$"]
+}

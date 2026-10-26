@@ -1,0 +1,6 @@
+{
+  "name": "Build Helm Chart",
+  "description": "Run repository-owned verification, package one chart, and upload it without publishing.",
+  "categories": ["Continuous integration"],
+  "filePatterns": ["(^|/)Chart\\.yaml$"]
+}

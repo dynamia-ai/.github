@@ -1,0 +1,6 @@
+{
+  "name": "Release Image",
+  "description": "Publish a versioned multi-platform image, verify its digest, then create its GitHub release.",
+  "categories": ["Deployment"],
+  "filePatterns": ["(^|/)Dockerfile$", "(^|/)\\.dockerignore$"]
+}

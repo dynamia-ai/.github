@@ -1,0 +1,12 @@
+version: "2"
+
+run:
+  modules-download-mode: readonly
+
+linters:
+  default: standard
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

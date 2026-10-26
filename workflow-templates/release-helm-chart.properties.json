@@ -1,0 +1,6 @@
+{
+  "name": "Release Helm Chart",
+  "description": "Publish a verified chart when its Chart.yaml version increases on the default branch.",
+  "categories": ["Deployment"],
+  "filePatterns": ["(^|/)Chart\\.yaml$"]
+}

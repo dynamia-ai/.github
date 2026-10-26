@@ -1,0 +1,6 @@
+{
+  "name": "Go CI",
+  "description": "Run change-aware, repository-owned Go checks through Make.",
+  "categories": ["Go"],
+  "filePatterns": ["(^|/)go\\.(mod|work)$"]
+}
